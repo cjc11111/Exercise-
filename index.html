@@ -112,6 +112,12 @@
     font-size: 13.5px; font-family: inherit; margin-top: 5px; box-sizing: border-box;
   }
   #notesSavedMsg { font-size: 12px; color: var(--sage); margin-top: 10px; min-height: 16px; }
+  #downloadBtn {
+    background: transparent; color: var(--teal); border: 1px solid var(--teal); border-radius: 7px;
+    padding: 9px 14px; cursor: pointer; font-size: 12.5px; font-weight: 500; font-family: inherit;
+    margin-top: 18px;
+  }
+  #downloadBtn:hover { background: var(--teal); color: #fff; }
 </style>
 </head>
 <body>
@@ -157,6 +163,10 @@
           <label>Plan / recommendation</label>
           <textarea id="nPlan" rows="6"></textarea>
           <div id="notesSavedMsg"></div>
+          <div>
+            <button id="downloadBtn">Download conversation &amp; notes</button>
+          </div>
+          <div style="font-size:11.5px;color:var(--muted);margin-top:8px;">Saves a text file of your interview and these notes, to attach to your presentation or submit as asked.</div>
         </div>
       </div>
     </div>
@@ -492,6 +502,45 @@ function saveNotes() {
   window._notesTimer = setTimeout(() => { msg.textContent = ""; }, 1500);
 }
 
+function downloadTranscript() {
+  if (!currentCase) return;
+  const history = chatHistories[currentCase.id] || [];
+  const notes = loadLocal("notes:" + currentCase.id, { group: "", diagnosis: "", risk: "", plan: "" });
+  const lines = [];
+  lines.push("PERIO PATIENT CASE - " + currentCase.name);
+  lines.push(currentCase.demo);
+  lines.push("Case: " + currentCase.tag + " (" + currentCase.section + ")");
+  lines.push("Downloaded: " + new Date().toLocaleString());
+  lines.push("");
+  lines.push("===== INTERVIEW =====");
+  history.forEach((m) => {
+    lines.push((m.role === "student" ? "Student" : "Patient") + ": " + m.text);
+  });
+  lines.push("");
+  lines.push("===== GROUP NOTES =====");
+  lines.push("Group name: " + (notes.group || "(not entered)"));
+  lines.push("");
+  lines.push("Diagnosis:");
+  lines.push(notes.diagnosis || "(not entered)");
+  lines.push("");
+  lines.push("Risk factors / key findings:");
+  lines.push(notes.risk || "(not entered)");
+  lines.push("");
+  lines.push("Plan / recommendation:");
+  lines.push(notes.plan || "(not entered)");
+
+  const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const safeGroup = (notes.group || "group").replace(/[^a-z0-9]+/gi, "-");
+  a.href = url;
+  a.download = currentCase.id + "-" + safeGroup + "-transcript.txt";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function showTab(tab) {
   document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("active", p.id === "panel-" + tab));
@@ -501,6 +550,7 @@ document.querySelectorAll(".tab-btn").forEach((b) => b.addEventListener("click",
 document.getElementById("sendBtn").addEventListener("click", sendMessage);
 document.getElementById("chatInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendMessage(); });
 ["nGroup", "nDiagnosis", "nRisk", "nPlan"].forEach((id) => document.getElementById(id).addEventListener("input", saveNotes));
+document.getElementById("downloadBtn").addEventListener("click", downloadTranscript);
 
 renderSidebar();
 </script>
