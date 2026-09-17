@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Perio Patient Cases</title>
+<style>
+  /* ============================================================
+     WORKER_URL is set in the <script> at the bottom of this file.
+     Follow the manual: after you deploy your Cloudflare Worker
+     (Part 3), send Claude the workers.dev address and ask it to
+     fill in WORKER_URL here - or edit it yourself, it's one line.
+     ============================================================ */
+  @import url('https://fonts.googleapis.com/css2?family=Spectral:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+  :root {
+    --paper: #F5F3EC;
+    --paper-alt: #FAF9F4;
+    --ink: #1C2420;
+    --teal: #1F4A44;
+    --teal-mid: #3D7268;
+    --red: #B8433A;
+    --sage: #7C9885;
+    --line: #D9D4C7;
+    --muted: #5F5E5A;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    font-family: 'IBM Plex Sans', -apple-system, Segoe UI, sans-serif;
+    background: var(--paper); color: var(--ink);
+  }
+  h1, h2, h3, .serif { font-family: 'Spectral', Georgia, serif; }
+  .mono { font-family: 'IBM Plex Mono', 'Courier New', monospace; }
+
+  #app { display: flex; height: 100vh; }
+
+  /* Sidebar */
+  #sidebar {
+    width: 300px; flex-shrink: 0; background: var(--teal); color: var(--paper);
+    padding: 20px 14px; overflow-y: auto;
+  }
+  #sidebar h1 { font-size: 19px; margin: 0 0 2px; font-weight: 600; }
+  #sidebar .sub { font-size: 11.5px; color: #9FC2B8; margin-bottom: 16px; }
+  .section-label {
+    font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: #9FC2B8; margin: 16px 0 6px; font-family: 'IBM Plex Mono', monospace;
+  }
+  .case-btn {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    background: rgba(245,243,236,0.06); border: 1px solid rgba(245,243,236,0.15);
+    border-radius: 8px; padding: 9px 11px; margin-bottom: 7px; color: var(--paper);
+    font-family: inherit;
+  }
+  .case-btn:hover { background: rgba(245,243,236,0.14); }
+  .case-btn.active { background: var(--paper); color: var(--teal); border-color: var(--paper); }
+  .case-btn .tag { font-size: 9.5px; font-family: 'IBM Plex Mono', monospace; opacity: 0.75; display: block; margin-bottom: 2px; }
+  .case-btn .name { font-size: 13px; font-weight: 600; }
+  .case-btn .hook { font-size: 11px; margin-top: 2px; opacity: 0.85; line-height: 1.35; }
+
+  /* Main */
+  #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 15px; }
+  #header { padding: 16px 26px; border-bottom: 1px solid var(--line); background: var(--paper-alt); display: none; }
+  #header .name { font-family: 'Spectral', serif; font-size: 21px; font-weight: 600; }
+  #header .demo { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  #tabs { display: flex; gap: 4px; margin-top: 12px; }
+  .tab-btn {
+    display: flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: 6px;
+    border: none; cursor: pointer; font-size: 12.5px; font-weight: 500; background: transparent;
+    color: var(--muted); font-family: inherit;
+  }
+  .tab-btn.active { background: var(--teal); color: var(--paper); }
+
+  #panels { flex: 1; overflow: hidden; display: none; flex-direction: column; }
+  .panel { display: none; flex: 1; overflow-y: auto; flex-direction: column; }
+  .panel.active { display: flex; }
+
+  /* Interview */
+  #chatLog { flex: 1; overflow-y: auto; padding: 22px 26px; display: flex; flex-direction: column; gap: 12px; }
+  .msg { max-width: 72%; padding: 9px 13px; border-radius: 10px; font-size: 13.5px; line-height: 1.55; }
+  .msg.patient { background: #EDEBE3; align-self: flex-start; }
+  .msg.student { background: var(--teal); color: var(--paper); align-self: flex-end; }
+  #chatStatus { font-size: 12.5px; color: var(--muted); padding: 0 26px; min-height: 18px; }
+  #chatStatus.error { color: var(--red); }
+  #chatInputRow { padding: 14px 26px; border-top: 1px solid var(--line); display: flex; gap: 8px; background: var(--paper-alt); }
+  #chatInput {
+    flex: 1; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line);
+    font-size: 13.5px; font-family: inherit; background: #fff;
+  }
+  #sendBtn {
+    background: var(--teal); color: var(--paper); border: none; border-radius: 8px;
+    padding: 0 18px; cursor: pointer; font-size: 13px; font-weight: 500; font-family: inherit;
+  }
+  #sendBtn:disabled { opacity: 0.55; cursor: default; }
+
+  /* Findings panel */
+  #findingsPanel { padding: 22px 26px; }
+  #findingsPanel h3 { font-size: 15px; margin: 18px 0 8px; }
+  #findingsPanel h3:first-child { margin-top: 0; }
+  .findings-note { font-size: 13.5px; line-height: 1.6; }
+  table.data { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 12.5px; }
+  table.data th { background: var(--teal); color: #fff; text-align: left; padding: 7px 10px; font-weight: 600; }
+  table.data td { padding: 7px 10px; border-bottom: 1px solid var(--line); }
+  table.data tr:nth-child(even) td { background: var(--paper-alt); }
+
+  /* Notes panel */
+  #notesPanel { padding: 22px 26px; max-width: 640px; }
+  #notesPanel label { font-size: 12px; font-weight: 500; color: var(--muted); display: block; margin-top: 14px; }
+  #notesPanel input, #notesPanel textarea {
+    width: 100%; padding: 9px 11px; border-radius: 7px; border: 1px solid var(--line);
+    font-size: 13.5px; font-family: inherit; margin-top: 5px; box-sizing: border-box;
+  }
+  #notesSavedMsg { font-size: 12px; color: var(--sage); margin-top: 10px; min-height: 16px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <h1>Perio patient bank</h1>
+    <div class="sub">Select your case to begin</div>
+    <div id="caseList"></div>
+  </div>
+  <div id="main">
+    <div id="empty">Choose a patient from the roster to start</div>
+    <div id="header">
+      <div class="name" id="hName"></div>
+      <div class="demo" id="hDemo"></div>
+      <div id="tabs">
+        <button class="tab-btn active" data-tab="interview">Interview</button>
+        <button class="tab-btn" data-tab="findings">Clinical findings</button>
+        <button class="tab-btn" data-tab="notes">Group notes</button>
+      </div>
+    </div>
+    <div id="panels">
+      <div class="panel active" id="panel-interview">
+        <div id="chatLog"></div>
+        <div id="chatStatus"></div>
+        <div id="chatInputRow">
+          <input id="chatInput" type="text" placeholder="Ask about the chief complaint, history, habits...">
+          <button id="sendBtn">Ask</button>
+        </div>
+      </div>
+      <div class="panel" id="panel-findings">
+        <div id="findingsPanel"></div>
+      </div>
+      <div class="panel" id="panel-notes">
+        <div id="notesPanel">
+          <div class="serif" style="font-size:15px;font-weight:600;">Diagnosis &amp; treatment plan - group notes</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:4px;">Saved on this device only, for your group to work from before presenting. Use the presentation rubric to self-check before class.</div>
+          <label>Group name</label>
+          <input id="nGroup" type="text" placeholder="e.g. Group 3">
+          <label>Diagnosis</label>
+          <textarea id="nDiagnosis" rows="3"></textarea>
+          <label>Risk factors / key findings</label>
+          <textarea id="nRisk" rows="2"></textarea>
+          <label>Plan / recommendation</label>
+          <textarea id="nPlan" rows="6"></textarea>
+          <div id="notesSavedMsg"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   Point this at your Cloudflare Worker address from Part 3 of
+   the manual, e.g. "https://perio-patient.yourname.workers.dev"
+   ============================================================ */
+const WORKER_URL = "https://YOUR-WORKER-SUBDOMAIN.workers.dev";
+
+const CASES = [
+  // ---------- Diagnostic classification cases ----------
+  {
+    id: "c1", section: "Diagnostic classification", tag: "CASE 01",
+    name: "Amara Solis", demo: "22-year-old female, graduate student",
+    hook: "Loose front teeth, minimal visible plaque",
+    opening: "Hi... thanks for seeing me. My dentist said I should come to a specialist. My front bottom teeth feel loose when I bite, and it's kind of freaking me out. I brush and floss every day, so I don't get it.",
+    system: `You are roleplaying as Amara Solis, a 22-year-old graduate student, for a periodontics teaching simulation. Stay fully in character, first person, conversational (2-5 sentences per answer). Do NOT reveal probing depths, radiographic findings, or a diagnosis - redirect exam questions to "you'd have to check, I don't know what that means."
+Facts (reveal only when asked): mobility of lower front teeth (#24,#25) ~3 months, mild spacing; no pain, mild bleeding when flossing she thinks is normal; brushes 2x/day, flosses most days, proud of hygiene, confused/defensive ("I do everything right"); healthy, no meds, non-smoker; father lost teeth young in his 30s, called "aggressive gum disease"; checkups every 6 months, last cleaning 4 months ago; grad student under academic stress, ~6hrs sleep; mildly anxious personality.
+Begin now: greet the student and give your opening concern in your own words.`,
+    findings: `<p>Localized deep pockets (7-9mm) with bleeding, mobility, and furcation involvement at the mandibular incisors (#24, #25) and first molars (#3, #14, #19, #30). Mild generalized bleeding (3mm pockets) at a few other sites. Remaining dentition within normal limits (PD ≤3mm, no BOP).</p>`,
+    radiographs: [["#3, #14 (mesial/distal)", "45%", "Angular (vertical) bone loss, first molars"], ["#19, #30 (mesial/distal)", "40%", "Angular bone loss, first molars"], ["#24-#25 (interproximal)", "50%", "Vertical defect, mandibular incisors"], ["Remaining dentition", "8%", "Within normal limits elsewhere"]],
+    tests: [["Biofilm/plaque index", "Low (12%)"], ["Bleeding on probing (overall)", "34% of sites"], ["Medical labs", "Not indicated / not drawn"]],
+  },
+  {
+    id: "c2", section: "Diagnostic classification", tag: "CASE 02",
+    name: "Ronald Ipsen", demo: "54-year-old male, long-haul truck driver",
+    hook: "Generalized bone loss, heavy smoker, halitosis",
+    opening: "My wife made me come in. She says my breath is bad and my gums bleed a lot when I brush. Honestly I don't have a lot of time between routes, so let's make this quick if we can.",
+    system: `You are roleplaying as Ronald Ipsen, a 54-year-old long-haul truck driver, for a periodontics teaching simulation. Stay fully in character, first person, conversational, a little gruff and pressed for time but not hostile. Do NOT reveal clinical exam data, radiographic findings, or a diagnosis - redirect to "that's your job to find out, doc."
+Facts (reveal only when asked): bleeding gums brushing, bad breath his wife complains about, food gets stuck more; a couple teeth feel wiggly if pressed, no big pain; brushes once a day at night, rarely flosses; smokes 1 pack/day x30 years, defensive/minimizing; hypertension on lisinopril, borderline elevated blood sugar per last physical but "doctor didn't call it diabetes"; hasn't seen a dentist in 4-5 years, some teeth extracted years ago from cavities; diet heavy fast food/energy drinks, occasional weekend beer; practical, defensive about smoking/hygiene, wants efficient answers, softens with empathy not lecturing.
+Begin now: greet the student and give your opening concern in your own words.`,
+    findings: `<p>Generalized moderate-to-severe pockets (5-7mm) with widespread bleeding across most teeth, several sites with grade I furcation on molars and mild mobility. Heavier involvement at maxillary central incisors (#8, #9: 6mm, recession, mobility). Missing #1, #16, #17, #32.</p>`,
+    radiographs: [["Generalized (all quadrants)", "35%", "Horizontal bone loss, moderate-to-severe, generalized"], ["#3, #14, #19, #30 (molars)", "50%", "Furcation involvement radiographically evident"], ["All quadrants", "-", "Heavy generalized subgingival calculus visible"]],
+    tests: [["Biofilm/plaque index", "High (58%)"], ["Bleeding on probing (overall)", "61% of sites"], ["HbA1c (medical record, 3mo ago)", "6.2%"], ["Blood pressure (today)", "138/88 mmHg"]],
+  },
+  {
+    id: "c3", section: "Diagnostic classification", tag: "CASE 03",
+    name: "Devon Marsh", demo: "20-year-old male, college student",
+    hook: "Sudden painful gums, ulcerated papillae, finals week",
+    opening: "It hurts to even eat right now. My gums between my teeth look like they're just... gone in some spots, and there's this taste in my mouth I can't get rid of. This came on really fast, like the last few days.",
+    system: `You are roleplaying as Devon Marsh, a 20-year-old college student, for a periodontics teaching simulation. Stay fully in character, first person, conversational, visibly uncomfortable/in pain, a bit overwhelmed. Do NOT reveal clinical exam findings, radiographic results, or a diagnosis.
+Facts (reveal only when asked): sudden onset 3-4 days ago of painful punched-out gum tissue between lower front teeth, bleeds with minimal touch, bad metallic taste, embarrassed about bad breath; pain 7/10, worse eating/brushing that area so he's avoided brushing there; feels run-down, mildly feverish 2 days, tender swollen glands under jaw today; it's finals week, sleeping 3-4hrs/night for a week, heavy stress, energy drinks/coffee; started smoking socially ~1 year ago, now ~half pack/day during stress, a little embarrassed; skipping meals, mostly energy drinks/fast food; otherwise healthy, no meds, never tested for HIV, doesn't think he needs to be (answer honestly only if directly asked); normally brushes 2x/day and is decent about it; worried, embarrassed, wants relief and reassurance.
+Begin now: greet the student and give your opening concern in your own words.`,
+    findings: `<p>Cratered, necrotic interdental papillae with gray pseudomembrane at the mandibular anterior region (#22-27), bleeding with minimal touch, recession 1mm at those sites. Remaining dentition within normal limits.</p>`,
+    radiographs: [["Mandibular anterior region", "5%", "No significant radiographic bone loss yet - acute soft tissue process"], ["Remaining dentition", "3%", "Within normal limits"]],
+    tests: [["Interdental papillae, #22-27", "Cratered/necrotic, gray pseudomembrane"], ["Fetor oris", "Present, marked"], ["Temperature (today)", "37.9°C (100.2°F)"], ["Submandibular lymph nodes", "Palpable, tender"]],
+  },
+  {
+    id: "c4", section: "Diagnostic classification", tag: "CASE 04",
+    name: "Priya Nair", demo: "28-year-old female, elementary school teacher, 24 weeks pregnant",
+    hook: "Generalized puffy gums, pregnant",
+    opening: "My gums have gotten so puffy the last couple months and they bleed really easily now, even with a soft toothbrush. I'm 24 weeks along, so I figured it's probably related, but it's gotten worse than I expected.",
+    system: `You are roleplaying as Priya Nair, a 28-year-old elementary school teacher, 24 weeks pregnant, for a periodontics teaching simulation. Stay in character, first person, conversational, upbeat but self-conscious about her gums. Do NOT reveal clinical exam findings, radiographic results, or a diagnosis.
+Facts (reveal only when asked): generalized gum swelling/bleeding ~2 months, worse than prior pregnancy changes; a small bump on upper gum near a front tooth (right side), grown over last month, bleeds if she bites something firm, not very painful; brushes 2x/day, flosses less lately ("makes bleeding worse"); healthy pregnancy, no gestational diabetes, prenatal vitamins, no other meds/allergies; first pregnancy, no complications; regular dental care pre-pregnancy, last cleaning ~8 months ago before pregnancy; morning sickness first trimester, mostly resolved; craving more carbs/snacking; non-smoker, no alcohol; friendly, anxious about dental safety during pregnancy, appreciates reassurance.
+Begin now: greet the student and give your opening concern in your own words.`,
+    findings: `<p>Generalized mild gingival inflammation (3-4mm probing, high bleeding on probing) with no clinical attachment loss. Pedunculated, erythematous nodule on facial gingiva near #8 (1.2cm, bleeds on contact).</p>`,
+    radiographs: [["Generalized", "4%", "No radiographic attachment/bone loss - soft tissue inflammation only"], ["#7-8 facial gingiva", "-", "Soft tissue enlargement clinically, no bony involvement"]],
+    tests: [["Biofilm/plaque index", "Moderate (38%)"], ["Bleeding on probing (overall)", "72% of sites"], ["Clinical attachment loss", "None detected"], ["Pedunculated nodule, facial #8", "1.2cm, erythematous, bleeds on contact"]],
+  },
+  {
+    id: "c5", section: "Diagnostic classification", tag: "CASE 05",
+    name: "Harold Weiss", demo: "61-year-old male, retired accountant",
+    hook: "Implants placed 6 years ago, now draining and tender (see also: Implant therapy)",
+    opening: "I've had these two implants in the back for about six years now, no problems until recently. The last few months the gum around them looks puffy and there's sometimes a bad taste, like something's draining back there.",
+    system: `You are roleplaying as Harold Weiss, a 61-year-old retired accountant, for a periodontics teaching simulation. Stay in character, first person, conversational, precise/detail-oriented, mildly worried about losing the implants. Do NOT reveal clinical exam findings, radiographic results, or a diagnosis.
+Facts (reveal only when asked): puffiness/tenderness/intermittent drainage around two lower-right implants placed ~6 years ago (replacing teeth lost to a cracked tooth and a failed root canal); fine 4-5 years, symptoms gradual last 6-8 months; mild pressure-like pain, worse flossing (which he finds hard and mostly avoids); hypertension controlled on amlodipine; type 2 diabetes 5 years, on metformin, "pretty good control," last HbA1c he recalls "around 7-something"; implant maintenance cleanings ~once/year (less than recommended); quit smoking 10 years ago after 20yr pack/day history; brushes 2x/day, doesn't floss/use interdental brushes around implants; methodical, wants to understand why, anxious about cost, appreciates step-by-step explanations.
+Begin now: greet the student and give your opening concern in your own words.`,
+    findings: `<p>Deep peri-implant pockets (7-8mm) with bleeding and suppuration at #19 and #30 implants, mild mobility, no mobility of the fixture itself. Remaining natural dentition within normal limits.</p>`,
+    radiographs: [["#19 implant (mesial/distal)", "30%", "Saucer-shaped peri-implant bone loss below implant shoulder"], ["#30 implant (mesial/distal)", "35%", "Saucer-shaped peri-implant bone loss, threads exposed"], ["Remaining natural dentition", "6%", "Within normal limits"]],
+    tests: [["Suppuration on probing, #19/#30", "Present"], ["Bleeding on probing, implants", "100% of implant sites"], ["HbA1c (self-reported, last known)", "~7.3%"], ["Implant mobility", "None detected (fixture stable)"]],
+  },
+  {
+    id: "c6", section: "Diagnostic classification", tag: "CASE 06",
+    name: "Linda Ferro", demo: "45-year-old female, restaurant manager",
+    hook: "Gums growing over her teeth over the past year",
+    opening: "My gums have basically been swallowing my teeth over the last year. It's gotten to the point where it's hard to chew comfortably and I'm honestly embarrassed to smile at work.",
+    system: `You are roleplaying as Linda Ferro, a 45-year-old restaurant manager, for a periodontics teaching simulation. Stay in character, first person, conversational, self-conscious/frustrated about appearance, otherwise upbeat and busy. Do NOT reveal clinical exam findings, radiographic results, or a diagnosis.
+Facts (reveal only when asked): gradual generalized gum overgrowth ~12-14 months, now covering parts of several teeth, bumpy texture; mild bleeding brushing, no significant pain, bothered by appearance and chewing difficulty; hypertension diagnosed ~18 months ago, started amlodipine around then - doesn't connect this to her gums unless asked directly, surprised medication could cause it; occasional ibuprofen for headaches, no seizure history, not on cyclosporine/transplant meds; regular checkups before this started, dentist mentioned "extra gum tissue" ~6 months ago and referred her, tissue kept growing since; harder to clean well now because tissue is in the way, plaque built up more, frustrated since she used to have great checkups; non-smoker, occasional wine, works long hours on her feet; practical, self-conscious, motivated to fix it once she understands why.
+Begin now: greet the student and give your opening concern in your own words.`,
+    findings: `<p>Generalized fibrotic, lobulated gingival enlargement covering up to 1/3-1/2 of several crowns, with pseudopockets (3-4mm probing) rather than true attachment loss. Difficult access for hygiene due to overgrowth.</p>`,
+    radiographs: [["Generalized", "6%", "No significant radiographic bone loss - overgrowth is soft tissue, not bony"]],
+    tests: [["Gingival enlargement", "Generalized, fibrotic, lobulated; covers up to 1/3-1/2 of several crowns"], ["Biofilm/plaque index", "Moderate-high (46%), difficult access due to overgrowth"], ["Bleeding on probing (overall)", "40% of sites"], ["Current antihypertensive", "Amlodipine (calcium channel blocker)"]],
+  },
+  {
+    id: "c7", section: "Diagnostic classification", tag: "CASE 07",
+    name: "Marcus Bellweather", demo: "39-year-old male, warehouse supervisor",
+    hook: "Acute swelling and throbbing pain, lower right molar",
+    opening: "This tooth has been killing me since yesterday. It's swollen on the outside of my gum, throbs constantly, and it hurts a lot more when I bite down. I want to know what's wrong and how fast we can fix it.",
+    system: `You are roleplaying as Marcus Bellweather, a 39-year-old warehouse supervisor, for a periodontics teaching simulation. Stay in character, first person, conversational, visible discomfort, wants fast answers, mildly impatient but cooperative. Do NOT reveal clinical exam findings (pulp testing, probing depths, radiographic results), or a diagnosis.
+Facts (reveal only when asked): acute throbbing pain/swelling lower-right back tooth (#19) started ~36hrs ago, rapidly worsening; pain 8/10, constant throb, worse biting, some relief lying still; a "bubble" on gum next to tooth, slight facial puffiness overnight; not particularly cold-sensitive, mostly constant deep ache/pain to biting; tooth had a large filling years ago, recalls a dentist mentioning it was "borderline for a root canal" but never followed up; also recalls being told he had "some pockets" in the back before but never treated; similar milder swelling same area ~8 months ago, went away on its own, never checked; otherwise healthy, no meds, non-smoker; hygiene inconsistent, brushes once/day most days, doesn't floss; stressed about missing work, wants clear timeline and pain relief, appreciates directness.
+Begin now: greet the student and give your opening concern in your own words.`,
+    findings: `<p>Deep probing depth (up to 9mm) with grade II furcation and grade 2 mobility at #19, with bleeding on probing. Mild elevated readings at adjacent #18 and #20 facial sites. Remaining dentition within normal limits.</p>`,
+    radiographs: [["#19 (mesial/furcation)", "55%", "Deep angular defect mesial root, radiolucency in furcation area"], ["#19 periapical region", "-", "Widened PDL apically, subtle periapical radiolucency present"], ["Remaining dentition", "8%", "Within normal limits"]],
+    tests: [["Pulp vitality, #19 (cold test)", "No response"], ["Pulp vitality, #18, #20 (cold test)", "Normal response, within normal limits"], ["Percussion, #19", "Markedly positive"], ["Palpation, buccal vestibule #19", "Tender, fluctuant swelling, purulent drainage on pressure"], ["Sinus tract", "Present, buccal to #19"]],
+  },
+
+  // ---------- Non-surgical periodontal therapy ----------
+  {
+    id: "n1", section: "Non-surgical periodontal therapy", tag: "NON-SURGICAL - N1",
+    name: "Diane Okafor", demo: "47-year-old female, high school administrator",
+    hook: "Generalized bleeding gums, first periodontal evaluation",
+    opening: "Hi, thanks for seeing me. My gums bleed pretty much every time I brush, and a coworker mentioned she needed gum surgery for something similar. I'm hoping that's not where this is headed for me.",
+    system: `You are roleplaying as Diane Okafor, a 47-year-old high school administrator, for a periodontics teaching exercise. Stay fully in character, first person, conversational, mildly anxious about needing "gum surgery," otherwise pleasant and cooperative. Do NOT reveal probing depths, radiographic findings, or a diagnosis.
+Facts (reveal only when asked): gums bleed generally when brushing, noticed for a while, no pain, no looseness she's aware of; brushes 2x/day, flosses inconsistently (2-3x/week); healthy, no meds, no allergies, non-smoker; last cleaning ~18 months ago, has avoided the dentist due to a busy schedule; worried about "surgery" mentioned by a coworker with gum disease, wants to know if it's avoidable; mildly anxious, appreciates reassurance and a clear plan.
+Begin now: greet the student and give your opening concern in your own words.`,
+    findings: `<p>Generalized 4-5mm pockets with bleeding on probing throughout, no mobility, no furcation involvement, mild generalized recession (1mm). No isolated deep or vertical defects.</p>`,
+    radiographs: [["Generalized", "20-25%", "Horizontal bone loss, coronal-to-mid third, consistent with Stage II"]],
+    tests: [["Biofilm/plaque index", "Moderate (34%)"], ["Bleeding on probing (overall)", "45% of sites"], ["Maximum probing depth", "5mm, no site >5mm"], ["Tooth loss due to periodontitis", "None"]],
+  },
+  {
+    id: "n2", section: "Non-surgical periodontal therapy", tag: "NON-SURGICAL - N2",
+    name: "Walter Higgins", demo: "58-year-old male, retired mail carrier",
+    hook: "Reassessment visit 8 weeks after initial SRP, one area not resolving",
+    opening: "I had that deep cleaning done about eight weeks ago and I've been really on top of my brushing and flossing since then. Most of it feels better, but there's this one spot in the back that still seems tender and bleeds sometimes. I don't get why that one's not better when I've been doing everything right.",
+    system: `You are roleplaying as Walter Higgins, a 58-year-old retired mail carrier, for a periodontics teaching exercise. Stay fully in character, first person, conversational, motivated and a little puzzled. Do NOT reveal probing depths, radiographic findings, or a diagnosis.
+Facts (reveal only when asked): had scaling and root planing ~8 weeks ago, very diligent with brushing/flossing since, proud of the change; one lower-back molar area still feels a little tender and bleeds occasionally; hypertension, well-controlled on medication, non-smoker, no allergies; this was his first deep cleaning, motivated to avoid further problems; cooperative, detail-oriented, wants to understand why the one spot isn't better.
+Begin now: greet the student and give your opening concern in your own words.`,
+    findings: `<p>Generalized sites now &le;4mm with no bleeding on probing (resolved with therapy), except a single residual site at #30 mesial: 6mm probing depth, bleeding on probing present, grade I furcation. All other sites healthy.</p>`,
+    radiographs: [["#30 mesial", "-", "Localized residual angular defect, unchanged from before treatment"], ["Remaining dentition", "-", "Stable, improved since initial therapy"]],
+    tests: [["Biofilm/plaque index", "Low (8%), excellent compliance"], ["Bleeding on probing (overall)", "12% of sites, isolated to #30"], ["Residual pocket, #30 mesial", "6mm with bleeding on probing"]],
+  },
+
+  // ---------- Surgical periodontal therapy ----------
+  {
+    id: "s1", section: "Surgical periodontal therapy", tag: "SURGICAL - S1",
+    name: "Renee Castillo", demo: "34-year-old female, veterinarian",
+    hook: "One isolated deep pocket that hasn't resolved despite excellent hygiene",
+    opening: "I finished a round of deep cleaning a while back and everything got so much better except this one spot on my upper back tooth. I take really good care of my teeth, so I'm honestly confused why this one area just won't budge.",
+    system: `You are roleplaying as Renee Castillo, a 34-year-old veterinarian, for a periodontics teaching exercise. Stay fully in character, first person, conversational, detail-oriented and health-conscious, a little frustrated. Do NOT reveal probing depths, radiographic findings, or a diagnosis.
+Facts (reveal only when asked): completed a full round of SRP months ago with great results everywhere except one upper-back tooth area with a persistent deep spot; excellent hygiene - brushes 2x/day, flosses daily, uses an interdental brush; healthy, no meds, no allergies, non-smoker; regular checkups, low-risk dental history aside from this site; analytical, wants a clear explanation and the options.
+Begin now: greet the student and give your opening concern in your own words.`,
+    findings: `<p>Single deep pocket at #14 mesial (8mm), rest of the mouth healthy (&le;3mm, no bleeding on probing). No mobility, no furcation involvement.</p>`,
+    radiographs: [["#14 mesial", "-", "Narrow, deep intrabony defect; 3-wall morphology; angle approximately 20 degrees"], ["Remaining dentition", "-", "Bone levels within normal limits"]],
+    tests: [["Biofilm/plaque index", "Low (9%)"], ["Bleeding on probing", "Isolated to #14 mesial"], ["Smoking status", "Non-smoker"], ["Medical history", "No diabetes, no relevant systemic disease"]],
+  },
+  {
+    id: "s2", section: "Surgical periodontal therapy", tag: "SURGICAL - S2",
+    name: "Gordon Alcaraz", demo: "50-year-old male, high school football coach",
+    hook: "Needs a crown on a molar, gum issue is complicating the restorative plan",
+    opening: "My dentist wants to put a crown on this back molar - the old filling's breaking down - but he said there's a gum thing that needs to get sorted first before he can do it right. I just want to get the tooth fixed.",
+    system: `You are roleplaying as Gordon Alcaraz, a 50-year-old high school football coach, for a periodontics teaching exercise. Stay fully in character, first person, conversational, practical and no-nonsense. Do NOT reveal probing depths, radiographic findings, or a diagnosis.
+Facts (reveal only when asked): dentist wants to crown a lower back molar with an old, breaking-down filling, flagged a "gum issue" needing to be addressed first; had a round of SRP a while back for generally moderate gum disease, mostly resolved except this one tooth area; brushes 2x/day, flosses most days now, improved since last visit; healthy, no meds, non-smoker; direct, practical, wants to know what needs to happen and how long it'll take.
+Begin now: greet the student and give your opening concern in your own words.`,
+    findings: `<p>Generalized 3-4mm pockets, stable, no bleeding. Localized 5mm pocket at the molar needing the crown, with a shallow bony crater and thick bony ledge at that site, a 1-wall defect with a wide, open angle - insufficient sound tooth structure exposed above the bone for a restorative margin.</p>`,
+    radiographs: [["Molar requiring crown", "-", "Horizontal bone loss with thick bony ledge and shallow 1-wall crater; no vertical/angular defect"], ["Remaining dentition", "-", "Stable, mild generalized bone loss consistent with prior Stage II disease"]],
+    tests: [["Biofilm/plaque index", "Low (11%)"], ["Bleeding on probing", "Isolated to the site needing the crown"], ["Restorative margin exposure", "Inadequate sound tooth structure above the alveolar crest"]],
+  },
+
+  // ---------- Implant therapy ----------
+  {
+    id: "i1", section: "Implant therapy", tag: "IMPLANT - I1",
+    name: "Sofia Reyes", demo: "29-year-old female, graphic designer",
+    hook: "Missing front tooth after a sports injury, told she may need bone grafting",
+    opening: "I lost a front tooth playing soccer a few months ago and I've been wearing a temporary fake tooth since. I went to see about getting an implant and the dentist said something about needing bone grafting first, which caught me off guard. I have an event coming up I'd love to look good for, but I want to do this the right way.",
+    system: `You are roleplaying as Sofia Reyes, a 29-year-old graphic designer, for a periodontics teaching exercise. Stay fully in character, first person, conversational, self-conscious about her smile, a little impatient about timeline but willing to do it right. Do NOT reveal clinical exam findings, radiographic results, or a diagnosis.
+Facts (reveal only when asked): lost an upper front tooth (lateral incisor position) in a soccer injury ~4 months ago, extracted after fracturing; wears a temporary flipper/retainer since; self-conscious about her smile for her client-facing job; a general dentist told her she might need "bone grafting" before an implant, which surprised/worried her; has an event in a few months she'd like to look her best for, but is willing to wait if it means doing it properly; healthy, no meds, non-smoker, no allergies; image-conscious but practical once she understands the reasoning.
+Begin now: greet the student and give your opening concern in your own words.`,
+    findings: `<p>Edentulous site at the upper lateral incisor position with a visible horizontal ridge concavity on the facial aspect. Adjacent teeth healthy, no periodontal disease elsewhere. Thin soft tissue biotype at the site.</p>`,
+    radiographs: [["Edentulous ridge, site in question", "-", "Reduced horizontal ridge width; bone height adequate; mesiodistal space adequate for a single implant"]],
+    tests: [["Soft tissue biotype at site", "Thin"], ["Keratinized tissue elsewhere", "Adequate"], ["Periodontal status, remaining dentition", "Healthy, no disease"]],
+  },
+
+  // ---------- Oral pathology ----------
+  {
+    id: "p1", section: "Oral pathology", tag: "PATHOLOGY - P1",
+    name: "Frank Delgado", demo: "62-year-old male, retired construction foreman",
+    hook: "A white patch on the tongue that won't wipe off, longtime tobacco user",
+    opening: "There's a white patch on the side of my tongue that's been there a few weeks. Doesn't hurt. Tried to scrape it off once and it wouldn't come off. Probably nothing, it's always a little rough there from the chewing tobacco.",
+    system: `You are roleplaying as Frank Delgado, a 62-year-old retired construction foreman, for a periodontics teaching exercise. Stay fully in character, first person, conversational, a little dismissive/minimizing about the lesion, reluctant to think it's serious. Do NOT reveal clinical exam findings or a diagnosis.
+Facts (reveal only when asked): noticed a white/gray patch on the side of his tongue ~6 weeks ago, doesn't hurt, hasn't changed much that he's noticed, tried scraping it once and it didn't come off; chews tobacco, over 30 years, about a can every two days, a little defensive/minimizing about this; drinks a few beers most evenings; hasn't mentioned it to his physician; reports himself as generally healthy, doesn't go to doctors much; gruff, minimizes symptoms, but will answer directly if asked.
+Begin now: greet the student and give your opening concern in your own words.`,
+    findings: `<p><b>Lesion exam</b> (in place of a periodontal chart): left lateral tongue, mid-third, approximately 1.5 x 0.8cm. White, slightly rough, non-scrapable surface with an irregular border; a subtle area of erythema is present within the white patch (mixed white-and-red appearance). No induration on palpation, lesion is mobile and not fixed to underlying tissue. No palpable cervical lymphadenopathy.</p>`,
+    radiographs: [["Not applicable", "-", "Soft tissue lesion; no radiographic component indicated at this stage"]],
+    tests: [["Smokeless tobacco use", ">30 years, near-daily"], ["Alcohol use", "Several drinks most evenings"], ["Lesion color/texture", "Mixed white and red (erythroleukoplakia), non-scrapable"], ["Induration / fixation", "None noted; lesion mobile"], ["Cervical lymph nodes", "No palpable lymphadenopathy"]],
+  },
+  {
+    id: "p2", section: "Oral pathology", tag: "PATHOLOGY - P2",
+    name: "Monique Betancourt", demo: "41-year-old female, hairdresser",
+    hook: "A gum lump that keeps coming back after being removed once before",
+    opening: "I had a growth removed from my lower gum near a back tooth about a year ago - they said it was benign. It's grown back over the last few months and bleeds sometimes when I eat something firm. I'm a little worried it means something worse this time.",
+    system: `You are roleplaying as Monique Betancourt, a 41-year-old hairdresser, for a periodontics teaching exercise. Stay fully in character, first person, conversational, a little anxious that the recurrence could mean something worse. Do NOT reveal clinical exam findings or a diagnosis.
+Facts (reveal only when asked): had a "growth" removed from her lower gum near a back tooth ~a year ago, told it was benign; it has grown back over the last 4 months; doesn't hurt much, bleeds when she eats something firm, occasionally catches it with her toothbrush; healthy, no meds, no known allergies, non-smoker; otherwise unremarkable dental history, wasn't told much detail about the original lesion beyond "benign"; a little anxious about the recurrence, wants reassurance but willing to hear the full picture.
+Begin now: greet the student and give your opening concern in your own words.`,
+    findings: `<p><b>Lesion exam</b>: facial gingiva between two lower molars, approximately 1cm, pedunculated, firm on palpation, pink to slightly reddish (similar to surrounding gingiva), smooth surface with an occasional ulcerated area from chewing trauma. A local irritant (calculus and an overhanging restoration margin) is present adjacent to the lesion. No palpable lymphadenopathy.</p>`,
+    radiographs: [["Site of lesion", "-", "No significant bone loss; no radiolucent or radiopaque change beneath the lesion"]],
+    tests: [["Lesion consistency", "Firm, pedunculated"], ["Recurrence history", "Regrew over 4 months after prior removal"], ["Local irritant present", "Calculus and overhanging restoration margin adjacent to lesion"], ["Lymphadenopathy", "None"]],
+  },
+];
+
+// ---------------- App logic ----------------
+
+let currentCase = null;
+let chatHistories = {};
+
+function loadLocal(key, fallback) {
+  try {
+    const v = localStorage.getItem(key);
+    return v ? JSON.parse(v) : fallback;
+  } catch (e) { return fallback; }
+}
+function saveLocal(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* best effort */ }
+}
+
+function renderSidebar() {
+  const listEl = document.getElementById("caseList");
+  listEl.innerHTML = "";
+  let lastSection = null;
+  CASES.forEach((c) => {
+    if (c.section !== lastSection) {
+      lastSection = c.section;
+      const label = document.createElement("div");
+      label.className = "section-label";
+      label.textContent = lastSection;
+      listEl.appendChild(label);
+    }
+    const btn = document.createElement("div");
+    btn.className = "case-btn" + (currentCase && currentCase.id === c.id ? " active" : "");
+    btn.innerHTML = `<span class="tag">${c.tag}</span><span class="name">${c.name}, ${c.demo.split("-")[0]}</span><div class="hook">${c.hook}</div>`;
+    btn.addEventListener("click", () => selectCase(c.id));
+    listEl.appendChild(btn);
+  });
+}
+
+function selectCase(id) {
+  currentCase = CASES.find((c) => c.id === id);
+  document.getElementById("empty").style.display = "none";
+  document.getElementById("header").style.display = "block";
+  document.getElementById("panels").style.display = "flex";
+  document.getElementById("hName").textContent = currentCase.name;
+  document.getElementById("hDemo").textContent = currentCase.demo;
+  renderSidebar();
+  showTab("interview");
+  loadChat();
+  renderFindings();
+  loadNotes();
+}
+
+function loadChat() {
+  const saved = loadLocal("chat:" + currentCase.id, null);
+  chatHistories[currentCase.id] = saved || [{ role: "patient", text: currentCase.opening }];
+  renderChat();
+}
+
+function renderChat() {
+  const log = document.getElementById("chatLog");
+  log.innerHTML = "";
+  (chatHistories[currentCase.id] || []).forEach((m) => {
+    const div = document.createElement("div");
+    div.className = "msg " + (m.role === "student" ? "student" : "patient");
+    div.textContent = m.text;
+    log.appendChild(div);
+  });
+  log.scrollTop = log.scrollHeight;
+}
+
+function setStatus(text, isError) {
+  const el = document.getElementById("chatStatus");
+  el.textContent = text || "";
+  el.className = isError ? "error" : "";
+}
+
+async function sendMessage() {
+  const input = document.getElementById("chatInput");
+  const text = input.value.trim();
+  if (!text || !currentCase) return;
+  const history = chatHistories[currentCase.id];
+  history.push({ role: "student", text });
+  input.value = "";
+  renderChat();
+  saveLocal("chat:" + currentCase.id, history);
+
+  const sendBtn = document.getElementById("sendBtn");
+  sendBtn.disabled = true;
+  setStatus("patient is responding...", false);
+
+  try {
+    const messages = history.map((m) => ({ role: m.role === "student" ? "user" : "assistant", content: m.text }));
+    const res = await fetch(WORKER_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ system: currentCase.system, messages }),
+    });
+    if (!res.ok) throw new Error("Worker returned " + res.status);
+    const data = await res.json();
+    const reply = data.reply || "Sorry, could you repeat that?";
+    history.push({ role: "patient", text: reply });
+    renderChat();
+    saveLocal("chat:" + currentCase.id, history);
+    setStatus("", false);
+  } catch (e) {
+    setStatus("Couldn't reach the patient. Check the Worker address, then try again.", true);
+  } finally {
+    sendBtn.disabled = false;
+  }
+}
+
+function renderFindings() {
+  const el = document.getElementById("findingsPanel");
+  let html = `<h3>Clinical findings</h3>${currentCase.findings}`;
+  html += `<h3>Radiographic findings</h3><table class="data"><tr><th>Site</th><th>Bone loss</th><th>Note</th></tr>`;
+  currentCase.radiographs.forEach((r) => { html += `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`; });
+  html += `</table>`;
+  html += `<h3>Diagnostic tests / exam findings</h3><table class="data"><tr><th>Finding</th><th>Result</th></tr>`;
+  currentCase.tests.forEach((t) => { html += `<tr><td>${t[0]}</td><td>${t[1]}</td></tr>`; });
+  html += `</table>`;
+  el.innerHTML = html;
+}
+
+function loadNotes() {
+  const n = loadLocal("notes:" + currentCase.id, { group: "", diagnosis: "", risk: "", plan: "" });
+  document.getElementById("nGroup").value = n.group || "";
+  document.getElementById("nDiagnosis").value = n.diagnosis || "";
+  document.getElementById("nRisk").value = n.risk || "";
+  document.getElementById("nPlan").value = n.plan || "";
+}
+function saveNotes() {
+  if (!currentCase) return;
+  const n = {
+    group: document.getElementById("nGroup").value,
+    diagnosis: document.getElementById("nDiagnosis").value,
+    risk: document.getElementById("nRisk").value,
+    plan: document.getElementById("nPlan").value,
+  };
+  saveLocal("notes:" + currentCase.id, n);
+  const msg = document.getElementById("notesSavedMsg");
+  msg.textContent = "Saved on this device.";
+  clearTimeout(window._notesTimer);
+  window._notesTimer = setTimeout(() => { msg.textContent = ""; }, 1500);
+}
+
+function showTab(tab) {
+  document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+  document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("active", p.id === "panel-" + tab));
+}
+
+document.querySelectorAll(".tab-btn").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+document.getElementById("sendBtn").addEventListener("click", sendMessage);
+document.getElementById("chatInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendMessage(); });
+["nGroup", "nDiagnosis", "nRisk", "nPlan"].forEach((id) => document.getElementById(id).addEventListener("input", saveNotes));
+
+renderSidebar();
+</script>
+</body>
+</html>
