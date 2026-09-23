@@ -178,7 +178,14 @@
    Point this at your Cloudflare Worker address from Part 3 of
    the manual, e.g. "https://perio-patient.yourname.workers.dev"
    ============================================================ */
-const WORKER_URL = "https://exercise.cejoline.workers.dev";
+const WORKER_URL = "https://periopatient.cejoline.workers.dev";
+
+/* Set to false to hide the category grouping (e.g. "Surgical
+   periodontal therapy") and per-case tag from the sidebar, so
+   students can't tell which treatment domain a case belongs to
+   before they work it up. Set to true to show them again (e.g.
+   for your own review). */
+const SHOW_CATEGORY_LABELS = false;
 
 const CASES = [
   // ---------- Diagnostic classification cases ----------
@@ -379,8 +386,8 @@ function renderSidebar() {
   const listEl = document.getElementById("caseList");
   listEl.innerHTML = "";
   let lastSection = null;
-  CASES.forEach((c) => {
-    if (c.section !== lastSection) {
+  CASES.forEach((c, i) => {
+    if (SHOW_CATEGORY_LABELS && c.section !== lastSection) {
       lastSection = c.section;
       const label = document.createElement("div");
       label.className = "section-label";
@@ -389,7 +396,8 @@ function renderSidebar() {
     }
     const btn = document.createElement("div");
     btn.className = "case-btn" + (currentCase && currentCase.id === c.id ? " active" : "");
-    btn.innerHTML = `<span class="tag">${c.tag}</span><span class="name">${c.name}, ${c.demo.split("-")[0]}</span><div class="hook">${c.hook}</div>`;
+    const tagText = SHOW_CATEGORY_LABELS ? c.tag : "CASE " + String(i + 1).padStart(2, "0");
+    btn.innerHTML = `<span class="tag">${tagText}</span><span class="name">${c.name}, ${c.demo.split("-")[0]}</span><div class="hook">${c.hook}</div>`;
     btn.addEventListener("click", () => selectCase(c.id));
     listEl.appendChild(btn);
   });
